@@ -1,3 +1,10 @@
+/// ??
+/// Read a piano keyboard image,
+///		draw the ROI in "src" window,
+///		then the HoughLine result in "detected line" window
+/// 
+/// wenoptk 2016 Jan. 30
+
 #include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/highgui/highgui.hpp"
 #include <stdlib.h>
