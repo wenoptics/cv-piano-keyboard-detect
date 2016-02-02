@@ -25,6 +25,10 @@ int Thickness;//框框粗細
 int Shift;//框框大小(0為正常)
 int key;//按鍵碼
 
+void onMousePersp(int event, int x, int y, int flags, void* param);
+std::vector<cv::Point> VertexPersp; //perspective调整的源4个点
+Mat onMousePerspImage;
+
 Rect ROI;
 Mat imgROI;
 
@@ -55,6 +59,7 @@ void initWindow() {
 	namedWindow("sobel", CV_WINDOW_AUTOSIZE);
 
 	namedWindow("src", 1);
+	namedWindow("src-perspective(4 points)", 1);
 
 #pragma region mouseDragRectSetup
 	VertexOne = cvPoint(0, 0);
@@ -66,11 +71,70 @@ void initWindow() {
 	setMouseCallback("src", onMouse);
 #pragma endregion
 
+#pragma region mousePointPerspective4Points
+	setMouseCallback("src-perspective(4 points)", onMousePersp);
+#pragma endregion
+
 }
 
 static void updateROI(){
 	imgROI = src(ROI);
 	on_trackbar(0, 0);
+}
+
+static void onMousePersp(int event, int x, int y, int flag, void* param) {
+	static Scalar theColor(0, 0, 255);
+
+	/// when mouse down
+	if (event == EVENT_LBUTTONDOWN || event == EVENT_RBUTTONDOWN){		}
+
+	/// when mouse up
+	if (event == EVENT_LBUTTONUP || event == EVENT_RBUTTONUP){
+
+		printf("[onMousePersp] mouse up( %d, %d) ", x, y);
+		printf("VertexPersp.size() ==  %d \n", VertexPersp.size());
+
+		if (VertexPersp.size() < 4) {
+			if (VertexPersp.size() == 0) {
+				src.copyTo(onMousePerspImage);
+			}
+			cv::Point thePoint(x, y);
+			VertexPersp.push_back(thePoint);
+
+			cv::circle(onMousePerspImage, thePoint, 3, theColor, 3);
+			if (VertexPersp.size() > 1) {
+				// draw line to connect the latter one;
+				cv::line(onMousePerspImage, thePoint, *(VertexPersp.end()-2), theColor);
+			}
+
+			cv::putText(onMousePerspImage,
+				std::to_string(VertexPersp.size()), 
+				thePoint, 
+				FONT_HERSHEY_SCRIPT_SIMPLEX, 1, theColor);
+
+			imshow("src-perspective(4 points)", onMousePerspImage);
+
+			if (VertexPersp.size() == 4) {
+				// do something
+			}
+
+		}
+		else {
+			VertexPersp.clear();
+
+			// clear the canvas
+			src.copyTo(onMousePerspImage);
+			imshow("src-perspective(4 points)", onMousePerspImage);
+			printf("cleared \n");
+		}
+
+
+	}
+
+	/// when drag
+	if (flag == EVENT_FLAG_LBUTTON || flag == EVENT_FLAG_RBUTTON){
+
+	}
 }
 
 static void onMouse(int event, int x, int y, int flag, void* param){
@@ -146,6 +210,11 @@ static void on_trackbar(int, void*) {
 		cvtColor(imgROI, grad, CV_BGR2GRAY);
 	}
 
+#if 1 /// do Gussasain blur
+	cv::GaussianBlur(grad, grad, Size(3, 3),0);
+	imshow("GaussianBlur", grad);
+#endif
+
 	Canny(grad, grad, pCannyT1, pCannyT2, 3);
 	imshow("Canny", grad);
 
@@ -154,7 +223,7 @@ static void on_trackbar(int, void*) {
 	// overlay on the source image
 	imgROI.copyTo(cdst);
 
-	/// use HoughLines to find lines
+#if 0 /// use HoughLines to find lines	
 	vector<Vec2f> lines;
 	// detect lines
 	HoughLines(grad, lines, 1, CV_PI / 180, pHoughT, 0, 0);
@@ -178,6 +247,16 @@ static void on_trackbar(int, void*) {
 
 		}
 	}
+#else /// or use HoughLineP to find lines
+	vector<Vec4i> lines;
+	cv::HoughLinesP(grad, lines, 1, CV_PI / 180, pHoughT, 30, 3);
+	for (size_t i = 0; i < lines.size(); i++)
+	{
+		line(cdst, Point(lines[i][0], lines[i][1]),
+			Point(lines[i][2], lines[i][3]), Scalar(0, 0, 255), 1, 8);
+	}
+	
+#endif
 
 	imshow("detected lines", cdst);
 
@@ -197,6 +276,7 @@ int main(int argc, char** argv)
 	}
 
 	imshow("src", src);
+	imshow("src-perspective(4 points)", src);
 
 	src.copyTo(imgROI);
 
