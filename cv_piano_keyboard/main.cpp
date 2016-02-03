@@ -70,9 +70,7 @@ void initWindow() {
 	createTrackbar("pAdaptThres_C", "Control", &pAdaptThres_C, 500, on_trackbar);
 
 	createTrackbar("pMorph_size", "Control", &pMorph_size, 20, on_trackbar);
-
-	namedWindow("sobel", CV_WINDOW_AUTOSIZE);
-
+	
 	namedWindow("src", 1);
 	namedWindow("src-perspective(4 points)", 1);
 
@@ -83,7 +81,7 @@ void initWindow() {
 	Thickness = 2;
 	Shift = 0;
 	key = 0;
-	setMouseCallback("src", onMouse);
+	//setMouseCallback("src", onMouse);
 #pragma endregion
 
 #pragma region mousePointPerspective4Points
@@ -127,12 +125,12 @@ static void onMousePersp(int event, int x, int y, int flag, void* param) {
 				thePoint, 
 				FONT_HERSHEY_SCRIPT_SIMPLEX, 1, theColor);
 
-			imshow("src-perspective(4 points)", onMousePerspImage);
+			cv::imshow("src-perspective(4 points)", onMousePerspImage);
 
 			if (VertexPersp.size() == 4) {
 				/// connect the first vertex
 				cv::line(onMousePerspImage, thePoint, VertexPersp.front(), theColor);
-				imshow("src-perspective(4 points)", onMousePerspImage);
+				cv::imshow("src-perspective(4 points)", onMousePerspImage);
 				
 				// do perspective transform
 				do_perspective_transform();
@@ -144,7 +142,7 @@ static void onMousePersp(int event, int x, int y, int flag, void* param) {
 
 			// clear the canvas
 			src.copyTo(onMousePerspImage);
-			imshow("src-perspective(4 points)", onMousePerspImage);
+			cv::imshow("src-perspective(4 points)", onMousePerspImage);
 			printf("cleared \n");
 		}
 
@@ -175,8 +173,9 @@ static void onMouse(int event, int x, int y, int flag, void* param){
 		VertexThree = Point(x, y);
 		src.copyTo(Image);
 		rectangle(Image, VertexOne, VertexThree, Color, Thickness, CV_AA, Shift);
-		imshow("src", Image);
+		cv::imshow("src", Image);
 		ROI = Rect(VertexOne, VertexThree);
+		
 
 		//updateROI
 		updateROI();
@@ -188,7 +187,7 @@ static void onMouse(int event, int x, int y, int flag, void* param){
 		VertexThree = Point(x, y);
 		src.copyTo(Image);
 		rectangle(Image, VertexOne, VertexThree, Color, Thickness, CV_AA, Shift);
-		imshow("src", Image);
+		cv::imshow("src", Image);
 	}
 
 	printf("VertexOne( %d, %d) ", VertexOne.x, VertexOne.y);
@@ -208,15 +207,38 @@ void do_perspective_transform() {
 	vector<Point2f> dst_transform
 		= { Point2f(0, 0), Point2f(0, h), Point2f(w, h), Point2f(w, 0) };
 
+	Mat imgAfterPerspTrans;
+
 	matPTransform = cv::getPerspectiveTransform(&VertexPersp[0], &dst_transform[0]);
 
-	Mat imgAfterPerspTrans;
 	cv::warpPerspective(src, imgAfterPerspTrans, matPTransform, Size(w, h));
 	//imshow("AfterPerspTrans", imgAfterPerspTrans);
 
 	/// show the image
 	imgROI = imgAfterPerspTrans;
-	on_trackbar(0, 0);
+	on_trackbar(0, 0);		
+}
+
+void do_back_perspective_transform(Mat &src_image, Mat& dst_image) {
+	Mat matPTransform;
+
+	// 0,0  0,h  w,h  w,0
+	vector<Point2f> dst_transform
+		= { 
+		Point2f(0, 0), 
+		Point2f(0, src_image.rows), 
+		Point2f(src_image.cols, src_image.rows), 
+		Point2f(src_image.cols, 0) 
+	};
+	
+	vector<Point2f> vec_4points = VertexPersp;
+
+	if (vec_4points.size() == 0){
+		vec_4points = dst_transform;
+	}
+
+	matPTransform = cv::getPerspectiveTransform(&dst_transform[0], &vec_4points[0]);
+	cv::warpPerspective(src_image, dst_image, matPTransform, src.size());
 
 }
 
@@ -249,7 +271,7 @@ static void on_trackbar(int, void*) {
 		imshow("sobel", grad);
 	
 #else
-		cvtColor(imgROI, grad, CV_BGR2GRAY);
+		cv::cvtColor(imgROI, grad, CV_BGR2GRAY);
 #endif
 
 #if 0 /// do Gussasain blur
@@ -260,7 +282,7 @@ static void on_trackbar(int, void*) {
 #if 1 /// use adative threshold
 	cv::adaptiveThreshold(grad, grad, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 
 		pAdaptThres_blockSize*2+1, pAdaptThres_C/10);
-	imshow("adative threshold", grad);
+	cv::imshow("adative threshold", grad);
 #endif
 
 	Mat element = getStructuringElement(MorphShapes::MORPH_RECT,
@@ -272,11 +294,22 @@ static void on_trackbar(int, void*) {
 
 	/// do MORPH_Close
 	cv::morphologyEx(grad, grad, MORPH_CLOSE, element);
-	imshow("MORPH o - c", grad);
+	cv::imshow("MORPH o - c", grad);
 #endif
 
-	Canny(grad, grad, pCannyT1, pCannyT2, 3);
-	imshow("Canny", grad);
+#if 0 ///∑ΩœÚ–‘
+	/// Generate grad_x and grad_y
+	Mat grad_x, grad_y;
+	Mat abs_grad_x, abs_grad_y;
+	cv::Sobel(grad, grad_x, ddepth, 1, 0, 3, scale, delta, BORDER_DEFAULT);
+	cv::Sobel(grad, grad_y, ddepth, 0, 1, 3, scale, delta, BORDER_DEFAULT);
+	cv::subtract(grad_y, grad_x, grad);
+	cv::convertScaleAbs(grad, grad);
+	cv::imshow("directional", grad);
+#endif
+
+	cv::Canny(grad, grad, pCannyT1, pCannyT2, 3);
+	cv::imshow("Canny", grad);
 
 
 #if 1 /// contours
@@ -287,7 +320,7 @@ static void on_trackbar(int, void*) {
 	cv::Mat imgContourResult(grad.size(), CV_8U, cv::Scalar(255));
 
 	cv::drawContours(imgContourResult , contours ,  
-		-1 , cv::Scalar(0) , 2) ;  
+		-1 , cv::Scalar(0) , 3) ;  
 
 	Mat imgContoursPoly = imgROI.clone();
 
@@ -295,7 +328,7 @@ static void on_trackbar(int, void*) {
 	for (std::vector<cv::Point> c : contours) {
 		std::vector<cv::Point> poly;
 		cv::approxPolyDP(cv::Mat(c), poly,
-			5, // accuracy of the approximation  
+			7, // accuracy of the approximation  
 			false); // closed shape 
 		// draw the poly
 		cv::polylines(imgContoursPoly, poly, false, RND_COLOR);
@@ -310,11 +343,11 @@ static void on_trackbar(int, void*) {
 	// overlay on the source image
 	imgROI.copyTo(cdst);
 
-#if 1 /// use contours image to find lines
+#if 0 /// use contours image to find lines
 	imgContourResult.copyTo(grad);
 	grad = -grad + 255; // invert it
 #endif
-#if 1 /// use HoughLines to find lines	
+#if 0 /// use HoughLines to find lines	
 	vector<Vec2f> lines;
 	// detect lines
 	HoughLines(grad, lines, 1, CV_PI / 180, pHoughT );
@@ -349,6 +382,12 @@ static void on_trackbar(int, void*) {
 	
 #endif
 	imshow("detected lines", cdst);
+
+#if 1 /// project the img back to the original perspetation
+	Mat imgBackTrans;
+	do_back_perspective_transform(cdst, imgBackTrans);
+	imshow("back transform", imgBackTrans);
+#endif
 
 }
 
