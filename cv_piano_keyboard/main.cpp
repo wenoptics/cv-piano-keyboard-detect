@@ -13,7 +13,10 @@
 using namespace cv;
 using namespace std;
 
+#define RND_COLOR Scalar(rand() & 255, rand() & 255, rand() & 255)
+
 static void on_trackbar(int, void*);
+void do_perspective_transform();
 
 bool useSobel = false;
 
@@ -26,7 +29,7 @@ int Shift;//框框大小(0為正常)
 int key;//按鍵碼
 
 void onMousePersp(int event, int x, int y, int flags, void* param);
-std::vector<cv::Point> VertexPersp; //perspective调整的源4个点
+std::vector<cv::Point2f> VertexPersp; //perspective调整的源4个点
 Mat onMousePerspImage;
 
 Rect ROI;
@@ -44,7 +47,14 @@ int pCannyT1 = 50;
 int pCannyT2 = 200;
 
 /// Param: HoughLine
-int pHoughT = 150;
+int pHoughT = 28;
+
+/// Param: Adaptive Threshold
+int pAdaptThres_blockSize = 26;
+int pAdaptThres_C = 2;
+
+/// Param: morph
+int pMorph_size = 4;
 #pragma endregion
 
 
@@ -54,7 +64,12 @@ void initWindow() {
 	createTrackbar("pCannyT1", "Control", &pCannyT1, 1000, on_trackbar);
 	createTrackbar("pCannyT2", "Control", &pCannyT2, 1000, on_trackbar);
 
-	createTrackbar("pHoughT", "Control", &pHoughT, 300, on_trackbar);
+	createTrackbar("pHoughT", "Control", &pHoughT, 100, on_trackbar);
+
+	createTrackbar("pAdaptThres_blockSize", "Control", &pAdaptThres_blockSize, 300, on_trackbar);
+	createTrackbar("pAdaptThres_C", "Control", &pAdaptThres_C, 500, on_trackbar);
+
+	createTrackbar("pMorph_size", "Control", &pMorph_size, 20, on_trackbar);
 
 	namedWindow("sobel", CV_WINDOW_AUTOSIZE);
 
@@ -98,7 +113,7 @@ static void onMousePersp(int event, int x, int y, int flag, void* param) {
 			if (VertexPersp.size() == 0) {
 				src.copyTo(onMousePerspImage);
 			}
-			cv::Point thePoint(x, y);
+			cv::Point2f thePoint(x, y);
 			VertexPersp.push_back(thePoint);
 
 			cv::circle(onMousePerspImage, thePoint, 3, theColor, 3);
@@ -115,7 +130,12 @@ static void onMousePersp(int event, int x, int y, int flag, void* param) {
 			imshow("src-perspective(4 points)", onMousePerspImage);
 
 			if (VertexPersp.size() == 4) {
-				// do something
+				/// connect the first vertex
+				cv::line(onMousePerspImage, thePoint, VertexPersp.front(), theColor);
+				imshow("src-perspective(4 points)", onMousePerspImage);
+				
+				// do perspective transform
+				do_perspective_transform();
 			}
 
 		}
@@ -178,9 +198,31 @@ static void onMouse(int event, int x, int y, int flag, void* param){
 
 int c;
 
+void do_perspective_transform() {
+	Mat matPTransform;
+
+	// 0,0  0,h  w,h  w,0
+	// w == 393 ; h == 135
+	int w = 393;
+	int h = 135;
+	vector<Point2f> dst_transform
+		= { Point2f(0, 0), Point2f(0, h), Point2f(w, h), Point2f(w, 0) };
+
+	matPTransform = cv::getPerspectiveTransform(&VertexPersp[0], &dst_transform[0]);
+
+	Mat imgAfterPerspTrans;
+	cv::warpPerspective(src, imgAfterPerspTrans, matPTransform, Size(w, h));
+	//imshow("AfterPerspTrans", imgAfterPerspTrans);
+
+	/// show the image
+	imgROI = imgAfterPerspTrans;
+	on_trackbar(0, 0);
+
+}
+
 static void on_trackbar(int, void*) {
 
-	if (useSobel) {
+#if 0 //useSobel
 
 		GaussianBlur(imgROI, imgROI, Size(3, 3), 0, 0, BORDER_DEFAULT);
 
@@ -205,28 +247,77 @@ static void on_trackbar(int, void*) {
 		addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0, grad);
 
 		imshow("sobel", grad);
-	}
-	else{
+	
+#else
 		cvtColor(imgROI, grad, CV_BGR2GRAY);
-	}
+#endif
 
-#if 1 /// do Gussasain blur
+#if 0 /// do Gussasain blur
 	cv::GaussianBlur(grad, grad, Size(3, 3),0);
 	imshow("GaussianBlur", grad);
+#endif
+
+#if 1 /// use adative threshold
+	cv::adaptiveThreshold(grad, grad, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 
+		pAdaptThres_blockSize*2+1, pAdaptThres_C/10);
+	imshow("adative threshold", grad);
+#endif
+
+	Mat element = getStructuringElement(MorphShapes::MORPH_RECT,
+		Size(2 * pMorph_size + 1, 2 * pMorph_size + 1), Point(pMorph_size, pMorph_size));
+#if 1 /// do MORPH op
+
+	/// do MORPH_Open	
+	cv::morphologyEx(grad, grad, MORPH_OPEN, element);
+
+	/// do MORPH_Close
+	cv::morphologyEx(grad, grad, MORPH_CLOSE, element);
+	imshow("MORPH o - c", grad);
 #endif
 
 	Canny(grad, grad, pCannyT1, pCannyT2, 3);
 	imshow("Canny", grad);
 
-	Mat cdst;
 
+#if 1 /// contours
+	//获取轮廓不包括轮廓内的轮廓  
+	std::vector<std::vector<cv::Point>> contours;
+	cv::findContours(grad.clone(), contours,
+		CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
+	cv::Mat imgContourResult(grad.size(), CV_8U, cv::Scalar(255));
+
+	cv::drawContours(imgContourResult , contours ,  
+		-1 , cv::Scalar(0) , 2) ;  
+
+	Mat imgContoursPoly = imgROI.clone();
+
+	// testing the approximate polygon  	
+	for (std::vector<cv::Point> c : contours) {
+		std::vector<cv::Point> poly;
+		cv::approxPolyDP(cv::Mat(c), poly,
+			5, // accuracy of the approximation  
+			false); // closed shape 
+		// draw the poly
+		cv::polylines(imgContoursPoly, poly, false, RND_COLOR);
+	} 
+
+	cv::imshow("drawContours" , imgContourResult) ; 
+	cv::imshow("Contours poly" , imgContoursPoly) ; 
+#endif
+
+
+	Mat cdst;
 	// overlay on the source image
 	imgROI.copyTo(cdst);
 
-#if 0 /// use HoughLines to find lines	
+#if 1 /// use contours image to find lines
+	imgContourResult.copyTo(grad);
+	grad = -grad + 255; // invert it
+#endif
+#if 1 /// use HoughLines to find lines	
 	vector<Vec2f> lines;
 	// detect lines
-	HoughLines(grad, lines, 1, CV_PI / 180, pHoughT, 0, 0);
+	HoughLines(grad, lines, 1, CV_PI / 180, pHoughT );
 
 	// draw lines
 	for (size_t i = 0; i < lines.size(); i++)
@@ -243,7 +334,7 @@ static void on_trackbar(int, void*) {
 			pt1.y = cvRound(y0 + 1000 * (a));
 			pt2.x = cvRound(x0 - 1000 * (-b));
 			pt2.y = cvRound(y0 - 1000 * (a));
-			line(cdst, pt1, pt2, Scalar(0, 0, 255), 1, CV_AA);
+			line(cdst, pt1, pt2, RND_COLOR, 1);
 
 		}
 	}
@@ -253,11 +344,10 @@ static void on_trackbar(int, void*) {
 	for (size_t i = 0; i < lines.size(); i++)
 	{
 		line(cdst, Point(lines[i][0], lines[i][1]),
-			Point(lines[i][2], lines[i][3]), Scalar(0, 0, 255), 1, 8);
+			Point(lines[i][2], lines[i][3]), RND_COLOR, 1, 8);
 	}
 	
 #endif
-
 	imshow("detected lines", cdst);
 
 }
