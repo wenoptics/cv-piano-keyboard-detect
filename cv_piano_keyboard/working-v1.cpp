@@ -46,7 +46,7 @@ int pAdaptThres_blockSize = 26;
 int pAdaptThres_C = 2;
 
 /// Param: morph
-int pMorph_size = 4;
+int pMorph_size = 2;
 #pragma endregion
 
 
@@ -221,29 +221,81 @@ static void on_trackbar(int, void*) {
 
 	Mat imgContoursPoly = imgROI.clone();
 	Mat imgCoutoursRect = imgROI.clone();
+	
+	std::vector<double> contoursArea = vector<double>();
 
-	// testing the approximate polygon  	
+	// for each contours
 	for (std::vector<cv::Point> c : contours) {
-		std::vector<cv::Point> poly;
 
+		// get the up-right rectangle
 		Rect rect = cv::boundingRect(c);
+
+		// draw the rectangle
 		cv::rectangle(imgCoutoursRect, rect, RND_COLOR);
 
+		// testing the approximate polygon  
+		std::vector<cv::Point> poly;
 		cv::approxPolyDP(cv::Mat(c), poly,
 			7, // accuracy of the approximation  
 			false); // closed shape 
+
+		// calc the area
+		double area = cv::contourArea(c);
+		contoursArea.push_back(area);
+
+		// get mass center 
+		// compute all moments  
+		cv::Moments mom = cv::moments(cv::Mat(c));
+		// draw mass center  
+		cv::circle(imgCoutoursRect,
+			// position of mass center converted to integer  
+			cv::Point(mom.m10 / mom.m00, mom.m01 / mom.m00),
+			2, cv::Scalar(0), 2); // draw black dot  
+		cv::putText(imgCoutoursRect, 
+			std::to_string((int)area),
+			cv::Point(mom.m10 / mom.m00, mom.m01 / mom.m00),
+			FONT_HERSHEY_SCRIPT_SIMPLEX, 0.4, RND_COLOR);
+
+		//debug print
+		printf("%f,\n", area);
+
 		// draw the poly
 		cv::polylines(imgContoursPoly, poly, false, RND_COLOR);
 	}
-
+	
 	cv::imshow("drawContours", imgContourResult);
 	cv::imshow("Contours Approx Poly", imgContoursPoly);
 	cv::imshow("Contours rect", imgCoutoursRect);
+
+
+	/// do area recognition
+	Mat imgRecoResult = imgROI.clone();
+	int i = 0;
+	double maxArea = *std::max_element(contoursArea.begin(), contoursArea.end());
+	double areaThreshold = maxArea * 0.75;
+	printf("!the max is %f,\n", maxArea);
+
+	for (std::vector<cv::Point> c : contours) {
+		// get the up-right rectangle
+		Rect rect = cv::boundingRect(c);
+
+		if (contoursArea[i++] > areaThreshold) {
+			// draw the rectangle
+			cv::rectangle(imgRecoResult, rect, Scalar(0, 255, 0, 0.5), CV_FILLED);
+		}
+		else{
+			// draw the rectangle
+			cv::rectangle(imgRecoResult, rect, Scalar(0, 0, 255, 0.5), CV_FILLED);
+		}
+	}
+
+	cv::imshow("Area Recognition Result", imgRecoResult);
+
 #endif
 
 	Mat cdst;
 	// overlay on the source image
-	imgCoutoursRect.copyTo(cdst);
+	imgRecoResult.copyTo(cdst);
 	
 #if 1 /// project the img back to the original perspetation
 	Mat imgBackTrans;
@@ -259,7 +311,7 @@ int main(int argc, char** argv)
 {
 
 	/// Load an image
-	src = imread("D:/WorkSpace/WIN/OpenCV/prog/opencv_test1/piano-raw/2_s.png");
+	src = imread("D:/WorkSpace/WIN/OpenCV/prog/cv_piano_keyboard/test_photo/3_s.png");
 
 	if (!src.data)
 	{
